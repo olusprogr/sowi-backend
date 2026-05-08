@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -29,6 +30,24 @@ const client = new MongoClient(DB_URL, {
 });
 
 const app = express();
+
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      cb(new Error('Not allowed by CORS'));
+    },
+  }),
+);
+
 app.use(express.json());
 
 let statsCollection;
@@ -60,10 +79,6 @@ app.post('/admin/register', async (req, res) => {
     if (code !== ADMIN_SETUP_CODE) {
       return res.status(403).json({ error: 'Invalid setup code' });
     }
-    const used = await usedCodesCollection.findOne({ code });
-    if (used) {
-      return res.status(403).json({ error: 'Setup code already used' });
-    }
     const existing = await adminsCollection.findOne({ username });
     if (existing) {
       return res.status(409).json({ error: 'Username already taken' });
@@ -74,7 +89,6 @@ app.post('/admin/register', async (req, res) => {
       passwordHash,
       createdAt: new Date(),
     });
-    await usedCodesCollection.insertOne({ code, usedAt: new Date(), adminId: result.insertedId });
     res.status(201).json({ _id: result.insertedId, username });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -94,7 +108,7 @@ app.post('/admin/login', async (req, res) => {
     const token = jwt.sign(
       { sub: admin._id.toString(), username: admin.username },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN || '12h' },
+      { expiresIn: JWT_EXPIRES_IN || '24h' },
     );
     res.json({ token });
   } catch (err) {
@@ -106,6 +120,7 @@ app.get('/stats', requireAuth, async (req, res) => {
   try {
     const docs = await statsCollection.find({}).toArray();
     res.json(docs);
+    console.log(`Admin ${req.admin.username} fetched all stats`);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -125,13 +140,16 @@ app.get('/stats/:id', requireAuth, async (req, res) => {
 });
 
 app.post('/stats', async (req, res) => {
+  console.log('[POST /stats] origin=', req.headers.origin, 'body=', req.body);
   try {
     if (!req.body || typeof req.body !== 'object') {
       return res.status(400).json({ error: 'Body must be a JSON object' });
     }
     const result = await statsCollection.insertOne(req.body);
+    console.log('[POST /stats] inserted', result.insertedId);
     res.status(201).json({ _id: result.insertedId, ...req.body });
   } catch (err) {
+    console.error('[POST /stats] error', err);
     res.status(500).json({ error: err.message });
   }
 });
