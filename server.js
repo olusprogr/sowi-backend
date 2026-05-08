@@ -52,7 +52,6 @@ app.use(express.json());
 
 let statsCollection;
 let adminsCollection;
-let usedCodesCollection;
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -159,13 +158,12 @@ async function start() {
   await client.db('admin').command({ ping: 1 });
   console.log('Connected to MongoDB');
 
-  const db = client.db(DB_NAME);
-  statsCollection = db.collection(DB_COLLECTION);
-  adminsCollection = db.collection('admins');
-  usedCodesCollection = db.collection('used_codes');
+  const statsDb = client.db(DB_NAME);
+  const usersDb = client.db('users');
+  statsCollection = statsDb.collection(DB_COLLECTION);
+  adminsCollection = usersDb.collection('admin');
 
   await adminsCollection.createIndex({ username: 1 }, { unique: true });
-  await usedCodesCollection.createIndex({ code: 1 }, { unique: true });
 
   const port = PORT || 3000;
   app.listen(port, () => {
